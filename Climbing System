@@ -1,0 +1,396 @@
+--[[
+Author: FacelessDeveloper
+Climbing System
+]]--
+
+--//Services
+local Players:Players = game:GetService("Players")
+local UserInputService:UserInputService = game:GetService("UserInputService")
+
+--//Variables
+local Player:Player = Players.LocalPlayer
+local Character:Model = Player.Character or Player.CharacterAdded:Wait()
+local HRP:Part = Character:FindFirstChild("HumanoidRootPart") or Character:WaitForChild("HumanoidRootPart")
+local Humanoid:Humanoid = Character:FindFirstChild("Humanoid") or Character:WaitForChild("Humanoid")
+local Head:Part = Character:FindFirstChild("Head") or Character:WaitForChild("Head")
+
+--//TouchPart
+local TouchPart:Part = Instance.new("Part") -- created in player's head, creates a part on top the player's head and updates the position part when it's touched
+TouchPart.Size = Vector3.new(HRP.Size.X,.5,.5)
+TouchPart.Anchored = false
+TouchPart.CanCollide = false
+TouchPart.CastShadow = false
+TouchPart.Massless = true
+TouchPart.CFrame = Head.CFrame + Vector3.new(0,Head.Size.Y/2,0)
+TouchPart.Parent = workspace
+
+--//TouchPartWeld
+local Weld:WeldConstraint = Instance.new("WeldConstraint") -- welds head to the touchpart so it moves with the player
+Weld.Parent = Head
+Weld.Part0 = Head
+Weld.Part1 = TouchPart
+
+--//AlignPartsFolder
+local AlignPartsFolder:Folder = Instance.new("Folder") -- create a folder to store the parts
+AlignPartsFolder.Parent = workspace
+
+--//Position
+local PositionPart:Part = Instance.new("Part") -- create a part inside the object we are climbing
+PositionPart.Anchored = true
+PositionPart.CanCollide = false
+PositionPart.CanTouch = false
+PositionPart.CastShadow = false
+PositionPart.Parent = AlignPartsFolder
+
+local PositionA1:Attachment = Instance.new("Attachment") --create 2 attachments and parent them to the character and the positionpart
+PositionA1.Parent = PositionPart
+local PositionA0:Attachment = Instance.new("Attachment")
+PositionA0.Parent = HRP
+
+local AlignPosition:AlignPosition = Instance.new("AlignPosition") -- we use this with the attachments to make sure the player is positioned with the surface it's climbing
+AlignPosition.Enabled = false
+AlignPosition.Attachment1 = PositionA1
+AlignPosition.Attachment0 = PositionA0
+AlignPosition.Parent = HRP
+AlignPosition.MaxForce = math.huge
+AlignPosition.Responsiveness = 100
+
+--//Orientation
+local OrientationPart:Part = Instance.new("Part") -- create the part we use for the orientation
+OrientationPart.Anchored = true
+OrientationPart.CanCollide = false
+OrientationPart.CanTouch = false
+OrientationPart.CastShadow = false
+OrientationPart.Parent = AlignPartsFolder
+
+local OrientationA1:Attachment = Instance.new("Attachment") -- create 2 attachments for the constraint
+OrientationA1.Parent = OrientationPart
+local OrientationA0:Attachment = Instance.new("Attachment")
+OrientationA0.Parent = HRP
+
+local AlignOrientation:AlignOrientation = Instance.new("AlignOrientation") -- create an align orientation to face the player towards the wall's surface while climbing
+AlignOrientation.Enabled = false
+AlignOrientation.Attachment1 = OrientationA1
+AlignOrientation.Attachment0 = OrientationA0
+AlignOrientation.Parent = HRP
+AlignOrientation.MaxTorque = math.huge
+AlignOrientation.Responsiveness = 100
+
+--//RaycastParams
+local Params = RaycastParams.new() -- create raycast parameters for the player later on and ignore the character and the parts inside the align folder
+Params.FilterDescendantsInstances = {Character,AlignPartsFolder}
+Params.FilterType = Enum.RaycastFilterType.Blacklist
+Params.IgnoreWater = false
+
+--//MainFunctionVariables
+local MovementSpeed = 5 -- how fast the player climbs
+local Right = false -- we use these values to check which way the player is currently moving depending on the WASD input
+local Left = false
+local Up = false
+local Down = false
+local OnWall = false
+local Raycast:RaycastResult -- create a global variable for the raycast we make later
+local RaycastInstance:Part -- the part the raycast hits
+local Direction = nil -- the direction the player is moving
+local Touching = false -- check whether we are touching the wall or not
+
+--//TouchCeilingConnection
+TouchPart.Touched:Connect(function(otherPart) --if the touch part is touched then update the position of the positionpart
+	if otherPart.Parent ~= Character then
+		Touching = true
+		while Touching do
+			PositionPart.Position = Vector3.new(PositionPart.Position.X,HRP.Position.Y,PositionPart.Position.Z)
+			task.wait()
+		end
+	end
+end)
+
+TouchPart.TouchEnded:Connect(function(otherPart) -- sets touching to false because we are no longer touching the surface of the wall
+	if otherPart.Parent ~= Character then
+		Touching = false
+	end
+end)
+
+--//RaycastFunction
+local function RaycastFunction() -- creates the raycast
+	OnWall = true -- sets the onwall variabel to true meaning we are now on the wall
+	PositionPart.Position = Raycast.Position + Raycast.Normal -- set the position of the shwocase part to the raycast position and surface of the wall
+	AlignPosition.Enabled = true -- enable the aligen position to position the humanoidrootpart
+	RaycastInstance = Raycast.Instance --The part or that the ray intersected.
+	if -Raycast.Normal:Dot(RaycastInstance.CFrame.LookVector) > 0 then --checks the surface of the wall we are climbing, whether it's back, front, or sides this is back and sets the direction of the player accoringly
+		--we use the direction later on with the input to move the player
+		Direction = 1
+	elseif -Raycast.Normal:Dot(RaycastInstance.CFrame.LookVector) < 0 then -- this is front
+		Direction = -1
+	elseif -Raycast.Normal:Dot(RaycastInstance.CFrame.RightVector) > 0 then -- this is the left
+		Direction = .5
+	else -- this is the right
+		Direction = -.5
+	end
+	if Direction == 1 then
+		OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new()) -- sets the orientation of the orientation part that we are using to see inside the wall depending on the direction this is for the back
+	elseif Direction == -1 then
+		OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new()):ToWorldSpace(CFrame.Angles(math.rad(0),math.rad(180),math.rad(0))) --front
+	elseif Direction == -.5 then
+		OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new()):ToWorldSpace(CFrame.Angles(math.rad(0),math.rad(90),math.rad(0))) -- right
+	else
+		OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new()):ToWorldSpace(CFrame.Angles(math.rad(0),math.rad(-90),math.rad(0))) -- left
+	end
+	AlignOrientation.Enabled = true -- enables the align orientation inside the player to face surface
+end
+
+--//DismountFunction
+local function Dismount() --function for mounting and dismounting the wall 
+	while true do --set an infinite loop
+		if script.Parent == nil then -- there is no character then return
+			return
+		end
+		while OnWall do	 --while on wall is true and player is on wall
+			if RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Y > RaycastInstance.Size.Y/2 then --check if the player is above the bottom of the surface
+				Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params)
+				if Raycast and Raycast.Instance ~= RaycastInstance then
+					RaycastFunction() --run the raycast function
+				else
+					PositionPart.Position += HRP.CFrame.UpVector + HRP.CFrame.LookVector
+					repeat
+						wait()
+					until (PositionPart.Position-HRP.Position).Magnitude < .9
+					OnWall = false
+					AlignPosition.Enabled = false
+					AlignOrientation.Enabled = false
+					Raycast = nil
+					RaycastInstance = nil
+					Direction = nil
+				end
+			elseif RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Y < -RaycastInstance.Size.Y/2 then
+				Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params) --check if the player is below the top of the surface
+				if Raycast and Raycast.Instance ~= RaycastInstance then
+					RaycastFunction() --run the raycast function
+				else
+					OnWall = false
+					AlignPosition.Enabled = false
+					AlignOrientation.Enabled = false
+					Raycast = nil
+					RaycastInstance = nil
+					Direction = nil
+				end
+			end
+			if (HRP.Position-PositionPart.Position).Magnitude > 2 then -- check if the position part that controls the player's movement is further than 2 studs
+				Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params) -- if it is then run the raycast function again
+				if Raycast and Raycast.Instance ~= RaycastInstance then
+					RaycastFunction()
+				else
+					OnWall = false
+					AlignPosition.Enabled = false
+					AlignOrientation.Enabled = false
+					Raycast = nil
+					RaycastInstance = nil
+					Direction = nil
+				end
+			end
+			task.wait() -- wait to control the while loop
+		end
+		coroutine.yield()
+	end
+end
+local DismountCoroutine = coroutine.wrap(Dismount) -- make it a cooroutine so it doesn't yield the script
+
+--//ChangeWallFunction
+local function ChangeWall() -- if the player changes surfaces while climbing
+	while true do
+		if script.Parent == nil then
+			return
+		end
+		while OnWall do -- check if they are on wall or not
+			if Direction == 1 then -- check the current direction they are moving
+				if RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).X > RaycastInstance.Size.X/2 then -- make sure they are on the part
+					Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params) -- cast a ray from the part on the player to the surface of the climbing part
+					if Raycast then
+						RaycastFunction()
+					else
+						print("right") -- print the changed surface
+						Direction = nil
+						PositionPart.Position = RaycastInstance.CFrame:PointToWorldSpace(Vector3.new(RaycastInstance.Size.X/2 + 1,RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Y,RaycastInstance.Size.Z/2)) -- reposition the positionpart
+						OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new()):ToWorldSpace(CFrame.Angles(math.rad(0),math.rad(90),math.rad(0))) -- reposition the orientation part inside the climbing part
+						Direction = -.5 -- set the movement direction to the right of the furface
+						--this repeats on the bottom for each different side of the surface
+					end
+				elseif RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).X < -RaycastInstance.Size.X/2 then
+					Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params)
+					if Raycast then
+						RaycastFunction()
+					else
+						print("left")
+						Direction = nil
+						PositionPart.Position = RaycastInstance.CFrame:PointToWorldSpace(Vector3.new(-RaycastInstance.Size.X/2 - 1,RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Y,RaycastInstance.Size.Z/2))
+						OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new()):ToWorldSpace(CFrame.Angles(math.rad(0),math.rad(-90),math.rad(0)))
+						Direction = .5
+					end
+				end
+			elseif Direction == -1 then
+				if RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).X > RaycastInstance.Size.X/2 then
+					Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params)
+					if Raycast then
+						RaycastFunction()
+					else
+						print("right")
+						Direction = nil
+						PositionPart.Position = RaycastInstance.CFrame:PointToWorldSpace(Vector3.new(RaycastInstance.Size.X/2 + 1,RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Y,-RaycastInstance.Size.Z/2))
+						OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new()):ToWorldSpace(CFrame.Angles(math.rad(0),math.rad(90),math.rad(0)))
+						Direction = -.5
+					end
+				elseif RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).X < -RaycastInstance.Size.X/2 then
+					Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params)
+					if Raycast then
+						RaycastFunction()
+					else
+						print("left")
+						Direction = nil
+						PositionPart.Position = RaycastInstance.CFrame:PointToWorldSpace(Vector3.new(-RaycastInstance.Size.X/2 - 1,RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Y,-RaycastInstance.Size.Z/2))
+						OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new()):ToWorldSpace(CFrame.Angles(math.rad(0),math.rad(-90),math.rad(0)))
+						Direction = .5
+					end
+				end
+			elseif Direction == -.5 then
+				if RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Z > RaycastInstance.Size.Z/2 then
+					Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params)
+					if Raycast then
+						RaycastFunction()
+					else
+						print("back")
+						Direction = nil
+						PositionPart.Position = RaycastInstance.CFrame:PointToWorldSpace(Vector3.new(RaycastInstance.Size.X/2,RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Y,RaycastInstance.Size.Z/2 + 1))
+						OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new())
+						Direction = 1
+					end
+				elseif RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Z < -RaycastInstance.Size.Z/2 then
+					Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params)
+					if Raycast then
+						RaycastFunction()
+					else
+						print("front")
+						Direction = nil
+						PositionPart.Position = RaycastInstance.CFrame:PointToWorldSpace(Vector3.new(RaycastInstance.Size.X/2,RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Y,-RaycastInstance.Size.Z/2 - 1))
+						OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new()):ToWorldSpace(CFrame.Angles(math.rad(0),math.rad(180),math.rad(0)))
+						Direction = -1
+					end
+				end
+			elseif Direction == .5 then
+				if RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Z > RaycastInstance.Size.Z/2 then
+					Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params)
+					if Raycast then
+						RaycastFunction()
+					else
+						print("back")
+						Direction = nil
+						PositionPart.Position = RaycastInstance.CFrame:PointToWorldSpace(Vector3.new(-RaycastInstance.Size.X/2,RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Y,RaycastInstance.Size.Z/2 + 1))
+						OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new())
+						Direction = 1
+					end
+				elseif RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Z < -RaycastInstance.Size.Z/2 then
+					Raycast = workspace:Raycast(PositionPart.Position,HRP.CFrame.LookVector*2,Params)
+					if Raycast then
+						RaycastFunction()
+					else
+						print("front")
+						Direction = nil
+						PositionPart.Position = RaycastInstance.CFrame:PointToWorldSpace(Vector3.new(-RaycastInstance.Size.X/2,RaycastInstance.CFrame:PointToObjectSpace(PositionPart.Position).Y,-RaycastInstance.Size.Z/2 - 1))
+						OrientationPart.CFrame = RaycastInstance.CFrame:ToWorldSpace(CFrame.new()):ToWorldSpace(CFrame.Angles(math.rad(0),math.rad(180),math.rad(0)))
+						Direction = -1
+					end
+				end
+			end
+			task.wait() -- add wait for the while loop
+		end
+		coroutine.yield()
+	end
+end
+local ChangeWallCoroutine = coroutine.wrap(ChangeWall) -- make it a couroutine to run without yielding
+
+--//MainFunction
+UserInputService.InputBegan:Connect(function(input,gameProcessedEvent) -- on input 
+	if input.KeyCode == Enum.KeyCode.Z and not gameProcessedEvent then -- check if not not chatting and z key is pressed
+		if OnWall then -- check if on wall then get them off the wall otherwise dismouse
+			OnWall = false
+			AlignPosition.Enabled = false
+			AlignOrientation.Enabled = false
+			Raycast = nil
+			RaycastInstance = nil
+			Direction = nil
+			return
+		end
+		Raycast = workspace:Raycast(HRP.Position,HRP.CFrame.LookVector,Params) -- if not on the wall then cast a ray
+		if Raycast then -- if the raycast exists then run the mounting functions
+			RaycastFunction()
+			ChangeWallCoroutine()
+			DismountCoroutine()
+		end
+	end
+end)
+--//DirectionalMovementFunction
+UserInputService.InputBegan:Connect(function(input,gameProcessedEvent)
+	if input and not gameProcessedEvent and OnWall then --check if input and currently climbing
+		if input.KeyCode == Enum.KeyCode.W then --turn corresponding variable on depending on the directional key held
+			Up = true
+			while Up and OnWall and RaycastInstance do -- if on wall and going up and the raycast then
+				PositionPart.Position += RaycastInstance.CFrame.UpVector / MovementSpeed -- move the position part higher
+				task.wait()
+			end
+		elseif input.KeyCode == Enum.KeyCode.A then -- check if input is A
+			Left = true
+			while Left and OnWall and Direction and RaycastInstance do -- if left is on and on wall then
+				if Direction == 1 then --if direction is 1 then
+					PositionPart.Position += -RaycastInstance.CFrame.RightVector / MovementSpeed --move left depending on what surface player is on whether front of back or sides
+					print("BOB")
+				elseif Direction == -1 then
+					PositionPart.Position += RaycastInstance.CFrame.RightVector / MovementSpeed -- move left depending on what surface player is on whether front of back or sides
+				elseif Direction == -.5 then
+					PositionPart.Position += -RaycastInstance.CFrame.LookVector / MovementSpeed --move left depending on what surface player is on whether front of back or sides
+				else
+					PositionPart.Position += RaycastInstance.CFrame.LookVector / MovementSpeed -- move left depending on what surface player is on whether front of back or sides
+				end
+				task.wait() -- wait for the loop
+			end
+		elseif input.KeyCode == Enum.KeyCode.S then -- check if s key is held
+			Down = true -- set down to true
+			while Down and OnWall and RaycastInstance do
+				PositionPart.Position += -RaycastInstance.CFrame.UpVector / MovementSpeed --set the position of the positionpart down and move the player accordingly
+				task.wait()
+			end
+		elseif input.KeyCode == Enum.KeyCode.D then --check if D key down
+			Right = true -- set right to true
+			while Right and OnWall and Direction and RaycastInstance do
+				if Direction == 1 then
+					PositionPart.Position += RaycastInstance.CFrame.RightVector / MovementSpeed -- move right depending on what surface player is on whether front of back or sides
+				elseif Direction == -1 then
+					PositionPart.Position += -RaycastInstance.CFrame.RightVector / MovementSpeed -- move right depending on what surface player is on whether front of back or sides
+				elseif Direction == -.5 then
+					PositionPart.Position += RaycastInstance.CFrame.LookVector / MovementSpeed -- move right depending on what surface player is on whether front of back or sides
+				else
+					PositionPart.Position += -RaycastInstance.CFrame.LookVector / MovementSpeed -- move right depending on what surface player is on whether front of back or sides
+				end
+				task.wait() -- wait for loop
+			end
+		end
+	end
+end)
+--//InputStopFunction
+UserInputService.InputEnded:Connect(function(input,gameProcessedEvent) -- check when the let the key go
+	if input and not gameProcessedEvent and OnWall then -- check if they are on wall
+		if input.KeyCode == Enum.KeyCode.W then -- set up to false
+			Up = false
+		elseif input.KeyCode == Enum.KeyCode.A then -- set left to false
+			Left = false
+		elseif input.KeyCode == Enum.KeyCode.S then -- set down to false
+			Down = false
+		elseif input.KeyCode == Enum.KeyCode.D then -- set  right to false
+			Right = false
+		end
+	end
+end)
+
+--//After death (to avoid memory leaks)
+Humanoid.Died:Connect(function() --when humanoid dies destroy the folder and set onwall to false to stop the loops and avoid preformance issues and memory leaks
+	AlignPartsFolder:Destroy()
+	OnWall = false
+end)
